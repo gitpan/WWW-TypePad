@@ -1,0 +1,13 @@
+use inc::Module::Install;
+use Module::Install::ReadmeFromPod;
+use Module::Install::Repository;
+name 'WWW-TypePad';
+all_from 'lib/WWW/TypePad.pm';
+readme_from 'lib/WWW/TypePad.pm';
+requires 'Any::Moose';
+requires 'JSON';
+requires 'Net::OAuth::Simple';
+build_requires 'Test::More';
+author_tests('xt');
+auto_set_repository;
+WriteAll;
