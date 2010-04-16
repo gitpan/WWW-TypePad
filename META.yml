@@ -22,9 +22,9 @@ no_index:
 requires:
   Any::Moose: 0
   JSON: 0
-  Net::OAuth::Simple: 0
+  Net::OAuth::Simple: 1.4
   perl: 5.8.1
 resources:
   license: http://dev.perl.org/licenses/
   repository: git://github.com/sixapart/perl-typepad-api.git
-version: 0.009_01
+version: 0.1000

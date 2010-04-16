@@ -2,13 +2,15 @@ package WWW::TypePad;
 use strict;
 use 5.008_001;
 
-our $VERSION = '0.009_01';
+our $VERSION = '0.1000';
 
 use Any::Moose;
+use Carp qw( croak );
+use HTTP::Request::Common;
+use HTTP::Status;
 use JSON;
 use LWP::UserAgent;
 use Net::OAuth::Simple;
-use WWW::TypePad::Util;
 use WWW::TypePad::Error;
 
 # TODO import flag to preload them all
@@ -34,6 +36,23 @@ has 'access_token_secret' => ( is => 'rw' );
 has 'host' => ( is => 'rw', default => 'api.typepad.com' );
 has '_oauth' => ( is => 'rw' );
 
+has 'ua' => (
+    is      => 'rw',
+    isa     => 'LWP::UserAgent',
+
+    # All browsers must be an instance of an LWP::UserAgent, so that
+    # we can guarantee that we can disable redirects.
+    default => sub {
+        my $ua = LWP::UserAgent->new;
+        $ua->max_redirect( 0 );
+        return $ua;
+    },
+    trigger => sub {
+        my( $self, $ua, $attr ) = @_;
+        $ua->max_redirect( 0 );
+    },
+);
+
 for my $object_type (qw( apikeys applications assets auth_tokens batch_processor blogs browser_upload
                          events favorites groups nouns objecttypes relationships users )) {
     my $backend_class = ucfirst $object_type;
@@ -49,9 +68,9 @@ sub oauth {
     my $api = shift;
     unless ( defined $api->_oauth ) {
         my $apikey = $api->get_apikey( $api->consumer_key );
-        my $links = $apikey->{owner}{links};
+        my $app = $apikey->{owner};
 
-        $api->_oauth( Net::OAuth::Simple::AuthHeader->new(
+        my $oauth = Net::OAuth::Simple::AuthHeader->new(
             tokens => {
                 consumer_key          => $api->consumer_key,
                 consumer_secret       => $api->consumer_secret,
@@ -59,11 +78,16 @@ sub oauth {
                 access_token_secret   => $api->access_token_secret,
             },
             urls => {
-                authorization_url   => WWW::TypePad::Util::l( $links, 'oauth-authorization-page' ),
-                request_token_url   => WWW::TypePad::Util::l( $links, 'oauth-request-token-endpoint' ),
-                access_token_url    => WWW::TypePad::Util::l( $links, 'oauth-access-token-endpoint' ),
+                authorization_url   => $app->{oauthAuthorizationUrl},
+                request_token_url   => $app->{oauthRequestTokenUrl},
+                access_token_url    => $app->{oauthAccessTokenUrl},
             },
-        ) );
+        );
+
+        # Substitute our own LWP::UserAgent instance for the OAuth browser.
+        $oauth->{browser} = $api->ua;
+
+        $api->_oauth( $oauth );
     }
     return $api->_oauth;
 }
@@ -77,6 +101,7 @@ sub get_apikey {
 sub uri_for {
     my $api = shift;
     my( $path ) = @_;
+    $path = '/' . $path unless $path =~ /^\//;
     return 'http://' . $api->host . $path;
 }
 
@@ -110,19 +135,103 @@ sub _call {
             $extra{ContentType} = 'application/json';
         }
 
-        $res = $api->oauth->make_restricted_request( $uri, $method, %extra );
+        my $oauth = $api->oauth;
+        $res = $oauth->make_restricted_request( $uri, $method, %extra );
+        
+        if ( $res->is_redirect ) {
+            $res = $oauth->make_restricted_request(
+                $res->header( 'Location' ), $method, %extra
+            );
+        }
     } else {
-        my $ua = LWP::UserAgent->new;
         my $req = HTTP::Request->new( $method => $uri );
-        $res = $ua->request( $req );
+        $res = $api->ua->request( $req );
+        
+        if ( $res->is_redirect ) {
+            $req = HTTP::Request->new( $method => $res->header( 'Location' ) );
+            $res = $api->ua->request( $req );
+        }
     }
 
     unless ( $res->is_success ) {
-        WWW::TypePad::Error::HTTP->throw( $res->code, $res->message );
+        WWW::TypePad::Error::HTTP->throw( $res->code, $res->content );
     }
 
     return 1 if $res->code == 204;
     return JSON::decode_json( $res->content );
+}
+
+sub call_upload {
+    my $api = shift;
+    my( $form ) = @_;
+
+    croak "call_upload requires an access token"
+        unless $api->access_token;
+
+    my $target_uri = delete $form->{target_url}
+        or croak "call_upload requires a target_url";
+
+    my $filename = delete $form->{filename}
+        or croak "call_upload requires a filename";
+
+    my $asset = delete $form->{asset} || {};
+    $asset = JSON::encode_json( $asset );
+
+    my $uri = URI->new( $api->uri_for( '/browser-upload.json' ) );
+    $uri->scheme( 'https' );
+
+    # Construct the OAuth parameters to get a signature.
+    my $nonce = Net::OAuth::Simple::AuthHeader->_nonce;
+    my $oauth_req = Net::OAuth::ProtectedResourceRequest->new(
+        consumer_key        => $api->consumer_key,
+        consumer_secret     => $api->consumer_secret,
+        token               => $api->access_token,
+        token_secret        => $api->access_token_secret,
+        request_url         => $uri->as_string,
+        request_method      => 'POST',
+        signature_method    => 'HMAC-SHA1',
+        timestamp           => time,
+        nonce               => $nonce,
+    );
+    $oauth_req->sign;
+
+    # Send all of the OAuth parameters in the query string.
+    $uri->query_form( $oauth_req->to_hash );
+
+    # And now, construct the actual HTTP::Request object that contains
+    # all of the fields we need to send.
+    my $req = POST $uri,
+        'Content-Type'  => 'multipart/form-data',
+        Content         => [
+            # Fake the redirect_to, since we just want to capture the
+            # 302 response, and not actually follow the redirect.
+            redirect_to             => 'http://example.com/none',
+
+            target_url              => $target_uri,
+            asset                   => $asset,
+            file                    => [ $filename ],
+        ];
+
+    # The response to an upload is always a redirect; if it's anything
+    # else, this indicates some internal error we weren't planning for,
+    # so bail early.
+    my $res = $api->ua->request( $req );
+    unless ( $res->code == RC_FOUND && $res->header( 'Location' ) ) {
+        WWW::TypePad::Error::HTTP->throw( $res );
+    }
+
+    # Otherwise, extract the response from the Location header. Successful
+    # uploads will result in a status=201 query string parameter...
+    my $loc = URI->new( $res->header( 'Location' ) );
+    my %form = $loc->query_form;
+    unless ( $form{status} == RC_CREATED ) {
+        WWW::TypePad::Error::HTTP->throw( $form{status}, $form{error} );
+    }
+
+    # ... and an asset_url, which we can GET to get back an asset
+    # dictionary.
+    my $asset_uri = $form{asset_url};
+    return $api->call_anon( GET => $asset_uri );
 }
 
 package Net::OAuth::Simple::AuthHeader;
@@ -130,13 +239,6 @@ package Net::OAuth::Simple::AuthHeader;
 # in an Authorization header, as required by the API, rather than the query string
 
 use base qw( Net::OAuth::Simple );
-
-sub new {
-    my $class = shift;
-    my $self = $class->SUPER::new( @_ );
-    $self->{browser}->max_redirect( 0 );
-    return $self;
-}
 
 sub make_restricted_request {
     my $self = shift;
@@ -164,10 +266,9 @@ sub make_restricted_request {
             Net::OAuth::PROTOCOL_VERSION_1_0,
         timestamp        => time,
         nonce            => $self->_nonce,
-        extra_params     => \%query,
         token            => $self->access_token,
         token_secret     => $self->access_token_secret,
-        extra_params     => \%extras,
+        extra_params     => { %query, %extras },
     );
     $request->sign;
     die "COULDN'T VERIFY! Check OAuth parameters.\n"
@@ -182,18 +283,6 @@ sub make_restricted_request {
             'Content'        => $content_body,
         ) : () ),
     );
-
-    if ( $response->is_redirect ) {
-        my $referral_uri = $response->header( 'Location' );
-        return $self->make_restricted_request(
-            $referral_uri,
-            $method,
-            %extras,
-        );
-    }
-
-    die "$method on $request_url failed: " . $response->status_line
-        unless $response->is_success;
 
     return $response;
 }
