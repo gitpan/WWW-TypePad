@@ -1,35 +1,44 @@
 #!/usr/bin/perl
 use strict;
+use Data::Dump 'pp';
 use Template;
 use JSON;
 use LWP::Simple;
 use FindBin qw($Bin);
+use String::CamelCase qw(camelize decamelize);
 
-for my $file ( qw(nouns.json object-types.json) ) {
-    warn "Downloading $file\n";
-    LWP::Simple::mirror("http://api.typepad.com/$file", "$Bin/$file");
+my $host = shift || "api.typepad.com";
+
+my $file = "method-mappings.json";
+warn "Downloading $file\n";
+LWP::Simple::mirror("http://$host/client-library-helpers/$file", "$Bin/$file");
+
+my $json  = do { open my $fh, "<", "$Bin/$file" or die $!; join '', <$fh> };
+my $mappings = decode_json($json);
+
+my $method_name_map = {
+    'post' => 'new',
+    'put'  => 'update',
+    'delete' => 'remove',
+};
+
+for my $key (keys %$mappings) {
+    handle_object($key, $mappings->{$key})
 }
 
-my $json  = do { open my $fh, "<", "$Bin/nouns.json" or die $!; join '', <$fh> };
-my $nouns = decode_json($json);
+sub handle_object {
+    my($key, $mapping) = @_;
 
-for my $entry (@{$nouns->{entries}}) {
-    handle_noun($entry);
-}
-
-sub handle_noun {
-    my $noun = shift;
-
-    my $name = camelize($noun->{name});
+    my $name = camelize($key);
     my $file = "lib/WWW/TypePad/$name.pm";
-    rewrite_file($noun, $name, $file);
+    rewrite_file($mapping, $name, $file);
 }
 
 sub rewrite_file {
-    my($noun, $package, $file) = @_;
+    my($mapping, $package, $file) = @_;
 
     my $content = slurp($file) || stub_for($package);
-    $content =~ s/### BEGIN auto-generated.*### END auto-generated\n/generate_code($package, $noun)/egs
+    $content =~ s/### BEGIN auto-generated.*### END auto-generated\n/generate_code($package, $mapping)/egs
         or return warn "$file: auto-generated code marked was not found.\n";
 
     warn "Writing $file\n";
@@ -38,12 +47,28 @@ sub rewrite_file {
 }
 
 sub generate_code {
-    my($package, $noun) = @_;
+    my($package, $mapping) = @_;
+
+    my %podesc = ('<' => 'E<lt>', '>' => 'E<gt>');
 
     my $stash = {
         package => $package,
-        noun => $noun,
+        mapping => $mapping,
         safe => sub { $_[0] =~ tr/-/_/; $_[0] },
+        decamelize => sub { decamelize($_[0]) },
+        mangle_method => sub {
+            my $method = $_[0];
+            $method =~ s/^(post|put|delete)/$method_name_map->{$1}/;
+            $method =~ s/^get([A-Z])/$1/;
+            decamelize($method);
+        },
+        path_format => sub { join '/', map { defined $_ ? $_ : '%s' } @{$_[0]} },
+        keys_sorted_by_value => sub { sort { $_[0]->{$a} <=> $_[0]->{$b} } keys %{$_[0]} },
+        escape_pod => sub {
+            $_[0] =~ s/T<(.*?)>/B<$1>/g;
+            $_[0] =~ s/([<>])/$podesc{$1}/g;
+            $_[0];
+        },
     };
 
     my $tt = Template->new;
@@ -52,63 +77,79 @@ sub generate_code {
 ### This is an automatically generated code, do not edit!
 ### Scroll down to look for END to add additional methods
 
+=pod
+
+=head1 NAME
+
+WWW::TypePad::[% package %] - [% package %] API methods
+
+=head1 METHODS
+
+=cut
+
 use strict;
 use Any::Moose;
 extends 'WWW::TypePad::Noun';
 
-sub prefix { '/[% noun.name %]' }
+use Carp ();
 
-sub get {
-    my $api = shift;
-    my $id  = shift;
-    $api->_get($id);
-}
+[% FOREACH method IN mapping.methods -%]
 
-[% FOREACH property IN noun.propertyEndpoints;
-   SET filters = property.filterEndpoints;
-   CALL filters.unshift(0) -%]
-[% FOREACH filter IN filters -%]
-[% IF filter && filter.parameterized -%]
-sub [% safe(property.name) %]_[% safe(filter.name) %] {
-[% ELSIF filter -%]
-sub [% safe(filter.name) %]_[% safe(property.name) %] {
-[% ELSE -%]
-sub [% safe(property.name) %] {
-[% END # IF -%]
-    my $api = shift;
-    my $id  = shift;
-    $api->_get($id, '[% property.name %]', [% IF filter %]'[% safe(filter.name) %]'[% ELSE %]undef[% END %], [% UNLESS filter && filter.parameterized %]undef, [% END %][% IF property.resourceObjectType.properties.size %]@_[% END %]);
-}
+[%- SET canonical = decamelize(method.methodName);
+    SET mangled   = mangle_method(method.methodName);
+    SET params    = keys_sorted_by_value( method.pathParams ) -%]
 
-[% END # FOREACH filter -%]
-[% IF property.supportedMethods.POST;
-   SET prop_singular = safe(property.name).replace('s$', '');
- -%]
-sub new_[% prop_singular %] {
-    my $api = shift;
-    my $id  = shift;
-    $api->_post($id, '[% property.name %]', undef, undef, @_);
-}
+=pod
+
+[% IF loop.first %]=over 4
+[% END %]
+
+=item [% canonical %]
+
+  my $res = $tp->[% decamelize(package) %]->[% canonical %]([% FOREACH param IN params %]$[% param %][% UNLESS loop.last %], [% END %][% END %]);
+
+[% escape_pod(method.docString) %]
+
+Returns [% escape_pod(method.returnObjectType.name) || 'hash reference' %] which contains following properties.
+
+=over 8
+
+[% FOREACH prop IN method.returnObjectType.properties -%]
+=item [% prop.name %]
+
+([% escape_pod(prop.type) %]) [% escape_pod(prop.docString) %]
 
 [% END -%]
-[% IF property.supportedMethods.PUT -%]
-sub set_[% safe(property.name) %] {
-    my $api = shift;
-    my $id  = shift;
-    $api->_post($id, '[% property.name %]', undef, undef, @_);
-}
 
+=back
+
+=cut
+
+sub [% canonical %] {
+    my $api = shift;
+    my @args;
+[% FOREACH param IN params -%]
+    push @args, shift; # [% param %]
 [% END -%]
-[% END # FOREACH property -%]
-
-[% FOREACH action IN noun.actionEndpoints -%]
-sub [% safe(action.name) %] {
-    my $api = shift;
-    my $id  = shift;
-    $api->_post($id, '[% action.name %]', undef, undef, [% IF action.postObjectType.properties.size %]@_[% END %]);
+    my $uri = sprintf '/[% path_format(method.pathChunks) %].json', @args;
+    $api->base->call("[% method.httpMethod %]", $uri, @_);
 }
 
-[% END # FOREACH action -%]
+[% IF canonical != mangled %]
+sub [% mangled %] {
+    my $self = shift;
+    Carp::carp("'[% mangled %]' is deprecated. Use '[% canonical %]' instead.");
+    $self->[% canonical %](@_);
+}
+[% END -%]
+[% END # FOREACH method -%]
+
+=pod
+
+=back
+
+=cut
+
 ### END auto-generated
 TEMPLATE
 
@@ -124,12 +165,6 @@ sub slurp {
 sub stub_for {
     my $package = shift;
     return "package WWW::TypePad::$package;\n### BEGIN auto-generated\n\n### END auto-generated\n\n1;\n";
-}
-
-sub camelize {
-    my $name = shift;
-    $name =~ s/-([a-z])/\u$1/g;
-    return ucfirst $name;
 }
 
 

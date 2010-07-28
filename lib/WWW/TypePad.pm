@@ -2,7 +2,7 @@ package WWW::TypePad;
 use strict;
 use 5.008_001;
 
-our $VERSION = '0.1000';
+our $VERSION = '0.2000';
 
 use Any::Moose;
 use Carp qw( croak );
@@ -18,10 +18,9 @@ use WWW::TypePad::ApiKeys;
 use WWW::TypePad::Applications;
 use WWW::TypePad::Assets;
 use WWW::TypePad::AuthTokens;
-use WWW::TypePad::BatchProcessor;
 use WWW::TypePad::Blogs;
-use WWW::TypePad::BrowserUpload;
 use WWW::TypePad::Events;
+use WWW::TypePad::ExternalFeedSubscriptions;
 use WWW::TypePad::Favorites;
 use WWW::TypePad::Groups;
 use WWW::TypePad::Nouns;
@@ -54,7 +53,7 @@ has 'ua' => (
 );
 
 for my $object_type (qw( apikeys applications assets auth_tokens batch_processor blogs browser_upload
-                         events favorites groups nouns objecttypes relationships users )) {
+                         events external_feed_subscriptions favorites groups nouns objecttypes relationships users )) {
     my $backend_class = ucfirst $object_type;
     $backend_class =~ s/_(\w)/uc $1/eg;
     $backend_class = "WWW::TypePad::$backend_class";
@@ -144,6 +143,7 @@ sub _call {
             );
         }
     } else {
+        $uri =~ s/^https:/http:/;
         my $req = HTTP::Request->new( $method => $uri );
         $res = $api->ua->request( $req );
         
@@ -275,15 +275,16 @@ sub make_restricted_request {
         unless $request->verify;
 
     my $request_url = URI->new( $url );
-    my $response = $self->{browser}->$method(
-        $request_url, 'Authorization' => $request->to_authorization_header,
-        ( $content_body ? (
-            'Content-Type'   => $content_type,
-            'Content-Length' => length $content_body,
-            'Content'        => $content_body,
-        ) : () ),
-    );
 
+    my $req = HTTP::Request->new(uc($method) => $request_url);
+    $req->header('Authorization' => $request->to_authorization_header);
+    if ($content_body) {
+        $req->content_type($content_type);
+        $req->content_length(length $content_body);
+        $req->content($content_body);
+    }
+
+    my $response = $self->{browser}->request($req);
     return $response;
 }
 
@@ -300,8 +301,17 @@ WWW::TypePad - Client for the TypePad Platform
 
 =head1 SYNOPSIS
 
-    use WWW::TypePad;
-    my $tp = WWW::TypePad->new;
+  use WWW::TypePad;
+  my $tp = WWW::TypePad->new(
+      consumer_key => 'YOUR-CONSUMER-KEY',
+      consumer_secret => 'YOUR-CONSUMER-SECRET',
+  );
+
+  # See samples/debug-console/app.psgi for the OAuth authentication flow
+
+  my $user = $tp->users->get($uid);
+
+  # See each modules POD documents for the API methods
 
 =head1 DESCRIPTION
 
@@ -333,5 +343,6 @@ L<http://github.com/sixapart/perl-typepad-api>
 =head1 SEE ALSO
 
 L<http://developers.typepad.com/>
+L<http://www.typepad.com/services/apidocs>
 
 =cut
