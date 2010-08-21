@@ -1,4 +1,12 @@
 package WWW::TypePad::Assets;
+
+use strict;
+use warnings;
+
+# Install an accessor into WWW::TypePad to access an instance of this class
+# bound to the WWW::TypePad instance.
+sub WWW::TypePad::assets { __PACKAGE__->new( base => $_[0] ) }
+
 ### BEGIN auto-generated
 ### This is an automatically generated code, do not edit!
 ### Scroll down to look for END to add additional methods
@@ -162,6 +170,18 @@ Returns Asset which contains following properties.
 
 (setE<lt>stringE<gt>) BE<lt>EditableE<gt> A set of identifiers for OE<lt>AccountE<gt> objects to which to crosspost this asset when it's posted. This property is omitted when retrieving existing assets.
 
+=item isConversationsAnswer
+
+(boolean) BE<lt>DeprecatedE<gt> CE<lt>trueE<gt> if this asset is an answer to a TypePad Conversations question, or absent otherwise. This property is deprecated and will be replaced with something more useful in future.
+
+=item reblogOf
+
+(AssetRef) BE<lt>DeprecatedE<gt> If this asset was created by 'reblogging' another asset, this property describes the original asset.
+
+=item reblogOfUrl
+
+(string) BE<lt>DeprecatedE<gt> If this asset was created by 'reblogging' another asset or some other arbitrary web page, this property contains the URL of the item that was reblogged.
+
 
 =back
 
@@ -280,6 +300,18 @@ Returns Asset which contains following properties.
 
 (setE<lt>stringE<gt>) BE<lt>EditableE<gt> A set of identifiers for OE<lt>AccountE<gt> objects to which to crosspost this asset when it's posted. This property is omitted when retrieving existing assets.
 
+=item isConversationsAnswer
+
+(boolean) BE<lt>DeprecatedE<gt> CE<lt>trueE<gt> if this asset is an answer to a TypePad Conversations question, or absent otherwise. This property is deprecated and will be replaced with something more useful in future.
+
+=item reblogOf
+
+(AssetRef) BE<lt>DeprecatedE<gt> If this asset was created by 'reblogging' another asset, this property describes the original asset.
+
+=item reblogOfUrl
+
+(string) BE<lt>DeprecatedE<gt> If this asset was created by 'reblogging' another asset or some other arbitrary web page, this property contains the URL of the item that was reblogged.
+
 
 =back
 
@@ -391,6 +423,18 @@ Returns Asset which contains following properties.
 =item crosspostAccounts
 
 (setE<lt>stringE<gt>) BE<lt>EditableE<gt> A set of identifiers for OE<lt>AccountE<gt> objects to which to crosspost this asset when it's posted. This property is omitted when retrieving existing assets.
+
+=item isConversationsAnswer
+
+(boolean) BE<lt>DeprecatedE<gt> CE<lt>trueE<gt> if this asset is an answer to a TypePad Conversations question, or absent otherwise. This property is deprecated and will be replaced with something more useful in future.
+
+=item reblogOf
+
+(AssetRef) BE<lt>DeprecatedE<gt> If this asset was created by 'reblogging' another asset, this property describes the original asset.
+
+=item reblogOfUrl
+
+(string) BE<lt>DeprecatedE<gt> If this asset was created by 'reblogging' another asset or some other arbitrary web page, this property contains the URL of the item that was reblogged.
 
 
 =back
@@ -637,6 +681,18 @@ Returns Comment which contains following properties.
 =item crosspostAccounts
 
 (setE<lt>stringE<gt>) BE<lt>EditableE<gt> A set of identifiers for OE<lt>AccountE<gt> objects to which to crosspost this asset when it's posted. This property is omitted when retrieving existing assets.
+
+=item isConversationsAnswer
+
+(boolean) BE<lt>DeprecatedE<gt> CE<lt>trueE<gt> if this asset is an answer to a TypePad Conversations question, or absent otherwise. This property is deprecated and will be replaced with something more useful in future.
+
+=item reblogOf
+
+(AssetRef) BE<lt>DeprecatedE<gt> If this asset was created by 'reblogging' another asset, this property describes the original asset.
+
+=item reblogOfUrl
+
+(string) BE<lt>DeprecatedE<gt> If this asset was created by 'reblogging' another asset or some other arbitrary web page, this property contains the URL of the item that was reblogged.
 
 
 =back
@@ -1129,14 +1185,11 @@ sub update_publication_status {
 
 
 =pod
- 
+
 =back
 
 =cut
- 
+
 ### END auto-generated
-
-
-
 
 1;
