@@ -61,7 +61,7 @@ Returns Favorite which contains following properties.
 
 =item published
 
-(string) The time that the favorite was created, as a W3CDTF timestamp.
+(datetime) The time that the favorite was created, as a W3CDTF timestamp.
 
 
 =back
@@ -76,12 +76,6 @@ sub delete {
     $api->base->call("DELETE", $uri, @_);
 }
 
-
-sub remove {
-    my $self = shift;
-    Carp::carp("'remove' is deprecated. Use 'delete' instead.");
-    $self->delete(@_);
-}
 
 =pod
 
@@ -115,7 +109,7 @@ Returns Favorite which contains following properties.
 
 =item published
 
-(string) The time that the favorite was created, as a W3CDTF timestamp.
+(datetime) The time that the favorite was created, as a W3CDTF timestamp.
 
 
 =back

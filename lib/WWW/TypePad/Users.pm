@@ -440,7 +440,7 @@ Returns Favorite which contains following properties.
 
 =item published
 
-(string) The time that the favorite was created, as a W3CDTF timestamp.
+(datetime) The time that the favorite was created, as a W3CDTF timestamp.
 
 
 =back
@@ -455,12 +455,6 @@ sub post_to_favorites {
     $api->base->call("POST", $uri, @_);
 }
 
-
-sub new_to_favorites {
-    my $self = shift;
-    Carp::carp("'new_to_favorites' is deprecated. Use 'post_to_favorites' instead.");
-    $self->post_to_favorites(@_);
-}
 
 =pod
 
